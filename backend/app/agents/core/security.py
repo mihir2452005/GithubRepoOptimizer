@@ -223,14 +223,18 @@ class SecurityAgent(BaseAgent):
                     # Check secret patterns
                     for pattern_name, pattern, severity, solution, solution_code in SECRET_PATTERNS:
                         if re.search(pattern, line):
+                            # Build REAL fix code using actual file path and line content
+                            real_fix = self._build_real_secret_fix(
+                                pattern_name, rel_path, line_num, stripped, solution_code
+                            )
                             findings.append(AgentFinding(
                                 severity=severity,
-                                description=f"Potential {pattern_name} detected",
+                                description=f"Potential {pattern_name} detected in {rel_path} at line {line_num}",
                                 file_path=rel_path,
                                 line_number=line_num,
                                 category="secret_detection",
                                 solution=solution,
-                                solution_code=solution_code,
+                                solution_code=real_fix,
                                 solution_reference="https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/",
                                 cwe_id="CWE-798",
                                 owasp_category="A07:2021",
@@ -244,14 +248,18 @@ class SecurityAgent(BaseAgent):
                     if not is_comment:
                         for name, pattern, severity, category, solution, solution_code in DANGEROUS_PATTERNS:
                             if re.search(pattern, line):
+                                # Build real fix using actual line content
+                                real_fix = self._build_real_dangerous_fix(
+                                    name, rel_path, line_num, stripped, solution_code
+                                )
                                 findings.append(AgentFinding(
                                     severity=severity,
-                                    description=f"Dangerous pattern: {name}",
+                                    description=f"Dangerous pattern: {name} in {rel_path}:{line_num}",
                                     file_path=rel_path,
                                     line_number=line_num,
                                     category=category,
                                     solution=solution,
-                                    solution_code=solution_code,
+                                    solution_code=real_fix,
                                     solution_reference="https://owasp.org/Top10/A03_2021-Injection/",
                                     cwe_id="CWE-78" if "subprocess" in name else "CWE-94",
                                     owasp_category="A03:2021",
@@ -302,3 +310,113 @@ class SecurityAgent(BaseAgent):
         """Check if a line contains placeholder/example values (not real secrets)."""
         line_lower = line.lower()
         return any(indicator in line_lower for indicator in PLACEHOLDER_INDICATORS)
+
+    def _build_real_secret_fix(self, pattern_name: str, file_path: str, line_num: int,
+                               original_line: str, generic_fix: str) -> str:
+        """Build a REAL copy-paste-ready fix that references the actual file and line."""
+        # Extract the variable name from the line (e.g., `api_key = "..."` → `api_key`)
+        var_match = re.match(r"^\s*(?:const|let|var|export)?\s*(\w+)\s*[=:]", original_line)
+        var_name = var_match.group(1) if var_match else "SECRET_VALUE"
+        env_var_name = var_name.upper().replace("-", "_")
+
+        return (
+            f"# File: {file_path}, Line: {line_num}\n"
+            f"# CURRENT (INSECURE):\n"
+            f"# {original_line.strip()}\n"
+            f"#\n"
+            f"# FIX — Replace with environment variable:\n"
+            f"import os\n"
+            f"{var_name} = os.environ.get('{env_var_name}')\n"
+            f"if not {var_name}:\n"
+            f"    raise ValueError('{env_var_name} environment variable is not set')\n"
+            f"\n"
+            f"# Then add to your .env file (DO NOT commit .env to git):\n"
+            f"# {env_var_name}=<your-actual-value-here>\n"
+            f"\n"
+            f"# And add .env to .gitignore:\n"
+            f"# echo '.env' >> .gitignore"
+        )
+
+    def _build_real_dangerous_fix(self, pattern_name: str, file_path: str, line_num: int,
+                                   original_line: str, generic_fix: str) -> str:
+        """Build a REAL copy-paste-ready fix for dangerous function usage."""
+        if "eval" in pattern_name.lower():
+            return (
+                f"# File: {file_path}, Line: {line_num}\n"
+                f"# CURRENT (DANGEROUS):\n"
+                f"# {original_line.strip()}\n"
+                f"#\n"
+                f"# FIX — Replace eval() with safe alternative:\n"
+                f"import ast\n"
+                f"import json\n"
+                f"\n"
+                f"# If parsing Python literals (strings, numbers, lists, dicts):\n"
+                f"result = ast.literal_eval(data_string)\n"
+                f"\n"
+                f"# If parsing JSON:\n"
+                f"result = json.loads(json_string)"
+            )
+        elif "subprocess" in pattern_name.lower():
+            # Extract the command from the line if possible
+            return (
+                f"# File: {file_path}, Line: {line_num}\n"
+                f"# CURRENT (DANGEROUS - shell injection risk):\n"
+                f"# {original_line.strip()}\n"
+                f"#\n"
+                f"# FIX — Use list arguments instead of shell=True:\n"
+                f"import subprocess\n"
+                f"\n"
+                f"# Replace shell=True with a list of arguments:\n"
+                f"result = subprocess.run(\n"
+                f"    ['command', 'arg1', 'arg2'],  # split into list\n"
+                f"    capture_output=True,\n"
+                f"    text=True,\n"
+                f"    check=True\n"
+                f")"
+            )
+        elif "sql" in pattern_name.lower():
+            return (
+                f"# File: {file_path}, Line: {line_num}\n"
+                f"# CURRENT (SQL INJECTION RISK):\n"
+                f"# {original_line.strip()}\n"
+                f"#\n"
+                f"# FIX — Use parameterized query:\n"
+                f"cursor.execute(\n"
+                f"    \"SELECT * FROM table WHERE column = %s\",\n"
+                f"    (user_value,)  # pass values as tuple parameter\n"
+                f")\n"
+                f"\n"
+                f"# Or with SQLAlchemy:\n"
+                f"from sqlalchemy import text\n"
+                f"result = session.execute(\n"
+                f"    text(\"SELECT * FROM table WHERE column = :val\"),\n"
+                f"    {{\"val\": user_value}}\n"
+                f")"
+            )
+        elif "pickle" in pattern_name.lower():
+            return (
+                f"# File: {file_path}, Line: {line_num}\n"
+                f"# CURRENT (ARBITRARY CODE EXECUTION RISK):\n"
+                f"# {original_line.strip()}\n"
+                f"#\n"
+                f"# FIX — Replace pickle with JSON:\n"
+                f"import json\n"
+                f"\n"
+                f"# Serialize:\n"
+                f"with open('data.json', 'w') as f:\n"
+                f"    json.dump(data, f)\n"
+                f"\n"
+                f"# Deserialize:\n"
+                f"with open('data.json', 'r') as f:\n"
+                f"    data = json.load(f)"
+            )
+        else:
+            # Generic but still includes the actual file/line context
+            return (
+                f"# File: {file_path}, Line: {line_num}\n"
+                f"# CURRENT:\n"
+                f"# {original_line.strip()}\n"
+                f"#\n"
+                f"# FIX:\n"
+                f"{generic_fix}"
+            )

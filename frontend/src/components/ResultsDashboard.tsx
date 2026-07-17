@@ -32,14 +32,14 @@ const agentLabels: Record<string, { name: string; icon: string; description: str
 
 // Define the DISPLAY ORDER — this is the logical flow users should see
 const AGENT_DISPLAY_ORDER = [
-  'repository_understanding',  // 1. First: what is this repo?
-  'architecture',              // 2. How is it structured?
-  'security',                  // 3. Is it secure?
-  'dependency',                // 4. Are dependencies healthy?
-  'code_quality',              // 5. Is the code well-written?
-  'technical_debt',            // 6. How much debt exists?
-  'executive_cto',             // 7. Executive summary of all above
-  'repository_optimization',   // 8. Final: what to do about it (roadmap)
+  'repository_understanding',  // 1. Repository Overview
+  'architecture',              // 2. Architecture Review
+  'code_quality',              // 3. Code Quality
+  'security',                  // 4. Security Analysis
+  'dependency',                // 5. Dependency & Vulnerability Audit
+  'technical_debt',            // 6. Technical Debt
+  'repository_optimization',   // 7. Optimization Roadmap
+  'executive_cto',             // 8. Executive Summary (last — strategic wrap-up)
 ];
 
 export function ResultsDashboard({ data, onReset }: ResultsDashboardProps) {
