@@ -68,16 +68,24 @@ def create_app() -> FastAPI:
             },
         )
 
-    # CORS middleware — use configured origins instead of wildcard
-    allowed_origins = config.allowed_origins.split(",") if config.allowed_origins else ["*"]
-    # Strip whitespace from each origin
-    allowed_origins = [origin.strip() for origin in allowed_origins]
+    # CORS middleware — allow all origins in development, configured origins in production
+    # IMPORTANT: The CORS middleware MUST be added before routes to handle OPTIONS preflight
+    allowed_origins_str = config.allowed_origins.strip() if config.allowed_origins else "*"
+    
+    if allowed_origins_str == "*":
+        allowed_origins = ["*"]
+    else:
+        allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+    
+    # Always allow common development origins
+    if config.environment != "production":
+        allowed_origins = ["*"]
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         allow_headers=["*"],
     )
 

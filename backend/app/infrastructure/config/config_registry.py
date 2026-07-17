@@ -19,7 +19,7 @@ class ConfigRegistry(BaseSettings):
 
     # CORS allowed origins (comma-separated)
     allowed_origins: str = Field(
-        default="http://localhost:3000,http://localhost:5173",
+        default="*",
         description="Comma-separated list of allowed CORS origins. Use * for all.",
     )
 
