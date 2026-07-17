@@ -1,6 +1,11 @@
 """
-ExecutiveCTOAgent — Synthesizes findings from all other agents into an executive summary.
-Provides high-level strategic recommendations for the repository.
+ExecutiveCTOAgent — Strategic executive overview of repository health.
+PURPOSE: Provides CTO-level decision support — health grade, risk assessment,
+top 3 strategic recommendations, and production readiness verdict.
+This is DIFFERENT from the Optimization Agent which provides tactical sprint planning.
+
+Executive Summary = "What's the overall status and what should leadership know?"
+Optimization Agent = "What specific things should developers fix, in what order?"
 """
 
 from ..base import BaseAgent
@@ -9,7 +14,7 @@ from ..payloads import AgentInputPayload, AgentOutputPayload, AgentFinding
 
 class ExecutiveCTOAgent(BaseAgent):
     name = "executive_cto"
-    version = "1.0.0"
+    version = "1.1.0"
     dependencies = []
 
     async def run(self, payload: AgentInputPayload) -> AgentOutputPayload:
@@ -43,39 +48,52 @@ class ExecutiveCTOAgent(BaseAgent):
                 if summary:
                     agent_summaries.append(f"[{agent_name}] {summary}")
 
-        # Generate executive findings
-        if total_critical > 0:
-            findings.append(AgentFinding(
-                severity="critical",
-                description=f"Repository has {total_critical} critical issues requiring immediate attention",
-                category="executive_summary",
-                fix_difficulty="hard",
-                estimated_fix_minutes=total_critical * 30,
-            ))
-
-        if total_high > 5:
-            findings.append(AgentFinding(
-                severity="high",
-                description=f"High issue density detected ({total_high} high-severity findings). Recommend dedicated sprint.",
-                category="executive_summary",
-                fix_difficulty="hard",
-                estimated_fix_minutes=total_high * 20,
-            ))
-
         # Health grade
         health_grade = self._compute_health_grade(total_critical, total_high, total_medium, total_low)
 
-        # Strategic recommendations
+        # Production readiness
+        production_ready = total_critical == 0 and total_high <= 2
+        production_status = "Ready for production" if production_ready else (
+            "NOT ready — critical issues must be resolved" if total_critical > 0
+            else "Almost ready — address high-severity issues first"
+        )
+
+        # Strategic recommendations (leadership-level)
         recommendations = self._generate_recommendations(
             total_critical, total_high, total_medium, prior_results
         )
 
+        # Risk assessment
+        risk_level = "Critical" if total_critical > 3 else (
+            "High" if total_critical > 0 or total_high > 5 else (
+                "Medium" if total_high > 0 or total_medium > 10 else "Low"
+            )
+        )
+
+        # Executive findings — high-level strategic observations
+        findings.append(AgentFinding(
+            severity="info" if production_ready else "high",
+            description=f"Production Readiness: {production_status}",
+            category="executive_assessment",
+            solution=f"Overall risk level: {risk_level}. {recommendations[0] if recommendations else ''}",
+        ))
+
+        if total_critical > 0:
+            findings.append(AgentFinding(
+                severity="critical",
+                description=f"⚠️ {total_critical} CRITICAL issues found — these pose immediate security or stability risks and must be resolved before any production deployment.",
+                category="executive_assessment",
+                solution="Block deployments until critical issues are resolved. Assign senior engineers to each critical finding. Schedule emergency review within 48 hours.",
+            ))
+
         summary = (
-            f"Executive Summary — Health Grade: {health_grade}\n"
-            f"Total findings: {total_findings} "
-            f"(Critical: {total_critical}, High: {total_high}, "
-            f"Medium: {total_medium}, Low: {total_low})\n"
-            f"Recommendations: {'; '.join(recommendations[:3])}"
+            f"📊 EXECUTIVE SUMMARY\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Health Grade: {health_grade} | Risk Level: {risk_level}\n"
+            f"Production Status: {production_status}\n"
+            f"Total Findings: {total_findings} (🔴 {total_critical} Critical, 🟠 {total_high} High, 🟡 {total_medium} Medium, 🔵 {total_low} Low)\n\n"
+            f"TOP STRATEGIC RECOMMENDATIONS:\n"
+            + "\n".join(f"  {i+1}. {r}" for i, r in enumerate(recommendations[:3]))
         )
 
         return AgentOutputPayload(
@@ -84,6 +102,9 @@ class ExecutiveCTOAgent(BaseAgent):
             findings=findings,
             metrics={
                 "health_grade": health_grade,
+                "risk_level": risk_level,
+                "production_ready": production_ready,
+                "production_status": production_status,
                 "total_findings": total_findings,
                 "severity_breakdown": {
                     "critical": total_critical,

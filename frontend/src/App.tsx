@@ -75,11 +75,26 @@ function App() {
   };
 
   const handleViewHistoryResult = async (jobId: string) => {
-    // Load a past result from history
-    const result = await getJobStatus(jobId);
-    if (result && result.results) {
-      setResults(result);
-      setState('done');
+    // Load a past result from history API directly
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${API_BASE}/api/v1/history/${jobId}`);
+      if (response.ok) {
+        const entry = await response.json();
+        // Map history entry to AnalyzeResponse format
+        setResults({
+          job_id: entry.id,
+          status: 'completed',
+          repo_url: entry.repo_url,
+          context: entry.context || { total_files: 0, languages: [] },
+          results: entry.results || {},
+          optimization_score: entry.optimization_score,
+          health_grade: entry.health_grade,
+        });
+        setState('done');
+      }
+    } catch {
+      setError('Failed to load analysis from history.');
     }
   };
 

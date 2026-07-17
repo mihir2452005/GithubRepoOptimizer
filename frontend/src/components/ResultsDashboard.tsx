@@ -19,16 +19,28 @@ const gradeColors: Record<string, string> = {
   'F': 'bg-red-600/20 text-red-300 border-red-600/40',
 };
 
-const agentLabels: Record<string, { name: string; icon: string }> = {
-  security: { name: 'Security Analysis', icon: '🔒' },
-  code_quality: { name: 'Code Quality', icon: '✨' },
-  architecture: { name: 'Architecture Review', icon: '📐' },
-  dependency: { name: 'Dependency Audit', icon: '📦' },
-  technical_debt: { name: 'Technical Debt', icon: '🔧' },
-  executive_cto: { name: 'Executive Summary', icon: '📊' },
-  repository_optimization: { name: 'Repository Optimization', icon: '⚡' },
-  repository_understanding: { name: 'Repository Understanding', icon: '🧠' },
+const agentLabels: Record<string, { name: string; icon: string; description: string }> = {
+  repository_understanding: { name: 'Repository Overview', icon: '🧠', description: 'Languages, frameworks, structure, and contributor analysis' },
+  architecture: { name: 'Architecture Review', icon: '📐', description: 'Architectural patterns, anti-patterns, and circular dependencies' },
+  security: { name: 'Security Analysis', icon: '🔒', description: 'Hardcoded secrets, insecure patterns, and exposed credentials' },
+  dependency: { name: 'Dependency & Vulnerability Audit', icon: '📦', description: 'Package versions, CVE vulnerabilities, and license compliance' },
+  code_quality: { name: 'Code Quality', icon: '✨', description: 'Complexity, duplication, long functions, and naming issues' },
+  technical_debt: { name: 'Technical Debt', icon: '🔧', description: 'TODO/FIXME markers, accumulated debt score, and remediation priority' },
+  executive_cto: { name: 'Executive Summary', icon: '📊', description: 'Strategic overview — health grade, top 3 recommendations, production readiness' },
+  repository_optimization: { name: 'Optimization Roadmap', icon: '⚡', description: 'Prioritized action plan — quick wins, sprint roadmap, optimization score' },
 };
+
+// Define the DISPLAY ORDER — this is the logical flow users should see
+const AGENT_DISPLAY_ORDER = [
+  'repository_understanding',  // 1. First: what is this repo?
+  'architecture',              // 2. How is it structured?
+  'security',                  // 3. Is it secure?
+  'dependency',                // 4. Are dependencies healthy?
+  'code_quality',              // 5. Is the code well-written?
+  'technical_debt',            // 6. How much debt exists?
+  'executive_cto',             // 7. Executive summary of all above
+  'repository_optimization',   // 8. Final: what to do about it (roadmap)
+];
 
 export function ResultsDashboard({ data, onReset }: ResultsDashboardProps) {
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
@@ -122,11 +134,13 @@ export function ResultsDashboard({ data, onReset }: ResultsDashboardProps) {
           🤖 Agent Results
         </h3>
         <div className="space-y-3">
-          {Object.entries(data.results).map(([key, result]) => (
+          {AGENT_DISPLAY_ORDER
+            .filter(key => key in data.results)
+            .map((key) => (
             <AgentSection
               key={key}
               agentKey={key}
-              result={result}
+              result={data.results[key]}
               isExpanded={expandedAgents.has(key)}
               onToggle={() => toggleAgent(key)}
             />
@@ -205,20 +219,25 @@ function AgentSection({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const label = agentLabels[agentKey] || { name: agentKey, icon: '🔹' };
+  const label = agentLabels[agentKey] || { name: agentKey, icon: '🔹', description: '' };
   const findingsCount = result.findings?.length || 0;
+  const isHighlight = agentKey === 'executive_cto' || agentKey === 'repository_optimization';
+  const borderClass = isHighlight ? 'border-blue-500/30 bg-slate-800/50' : '';
 
   return (
-    <div className="card !p-0 overflow-hidden">
+    <div className={`card !p-0 overflow-hidden ${borderClass}`}>
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-slate-700/30 transition-colors"
       >
         <span className="text-lg">{label.icon}</span>
-        <span className="flex-1 text-sm font-medium text-white">{label.name}</span>
+        <div className="flex-1">
+          <span className="text-sm font-medium text-white block">{label.name}</span>
+          <span className="text-xs text-slate-500">{label.description}</span>
+        </div>
         {result.status === 'success' && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-300">
-            ✓ Success
+            ✓ Done
           </span>
         )}
         {result.status === 'error' && (

@@ -174,7 +174,7 @@ class DependencyAgent(BaseAgent):
     def _vuln_to_finding(
         self, vuln: dict, package_name: str, version: str, ecosystem: str
     ) -> AgentFinding | None:
-        """Convert an OSV vulnerability response to an AgentFinding."""
+        """Convert an OSV vulnerability response to a detailed, user-friendly AgentFinding."""
         vuln_id = vuln.get("id", "")
         summary = vuln.get("summary", vuln.get("details", "Unknown vulnerability"))
         aliases = vuln.get("aliases", [])
@@ -185,45 +185,109 @@ class DependencyAgent(BaseAgent):
         # Determine fix version
         fix_version = self._get_fix_version(vuln, package_name)
 
-        # Build solution
+        # CVE alias for display
+        cve_ids = [a for a in aliases if a.startswith("CVE-")]
+        cve_display = f" ({cve_ids[0]})" if cve_ids else ""
+
+        # Build detailed description explaining WHAT the vulnerability means
+        description = (
+            f"🚨 {package_name}{f' v{version}' if version else ''} has a known vulnerability: "
+            f"{vuln_id}{cve_display}.\n\n"
+            f"What this means: {summary[:300]}.\n\n"
+            f"{'This is a CRITICAL security issue that could allow attackers to compromise your application.' if severity == 'critical' else ''}"
+            f"{'This is a HIGH severity issue that should be fixed before deployment.' if severity == 'high' else ''}"
+            f"{'This is a MEDIUM severity issue — fix it in your next maintenance cycle.' if severity == 'medium' else ''}"
+            f"{'This is a LOW severity issue — be aware but it may not require immediate action.' if severity == 'low' else ''}"
+        )
+
+        # Build comprehensive solution
         if ecosystem == "python":
-            upgrade_cmd = f"pip install --upgrade {package_name}"
             if fix_version:
-                upgrade_cmd = f"pip install {package_name}>={fix_version}"
+                upgrade_cmd = f"pip install \"{package_name}>={fix_version}\""
+                solution_code = (
+                    f"# Step 1: Upgrade {package_name} to the fixed version\n"
+                    f"pip install \"{package_name}>={fix_version}\"\n\n"
+                    f"# Step 2: Update your requirements.txt\n"
+                    f"# Change: {package_name}=={version}\n"
+                    f"# To:     {package_name}>={fix_version}\n\n"
+                    f"# Step 3: Verify the fix\n"
+                    f"pip show {package_name}  # Should show version >= {fix_version}\n\n"
+                    f"# Step 4: Run your tests to ensure nothing broke\n"
+                    f"pytest"
+                )
+            else:
+                upgrade_cmd = f"pip install --upgrade {package_name}"
+                solution_code = (
+                    f"# Upgrade to the latest version\n"
+                    f"pip install --upgrade {package_name}\n\n"
+                    f"# Update requirements.txt\n"
+                    f"pip freeze | grep -i {package_name} >> requirements.txt\n\n"
+                    f"# Run tests after upgrading\n"
+                    f"pytest"
+                )
         elif ecosystem == "nodejs":
-            upgrade_cmd = f"npm install {package_name}@latest"
             if fix_version:
                 upgrade_cmd = f"npm install {package_name}@{fix_version}"
+                solution_code = (
+                    f"# Step 1: Install the fixed version\n"
+                    f"npm install {package_name}@{fix_version}\n\n"
+                    f"# Or if it's a dev dependency:\n"
+                    f"npm install --save-dev {package_name}@{fix_version}\n\n"
+                    f"# Step 2: Verify\n"
+                    f"npm ls {package_name}\n\n"
+                    f"# Step 3: Run tests\n"
+                    f"npm test"
+                )
+            else:
+                upgrade_cmd = f"npm install {package_name}@latest"
+                solution_code = (
+                    f"# Upgrade to latest\n"
+                    f"npm install {package_name}@latest\n\n"
+                    f"# Run audit to verify fix\n"
+                    f"npm audit"
+                )
         elif ecosystem == "go":
             upgrade_cmd = f"go get {package_name}@latest"
+            solution_code = (
+                f"# Upgrade the dependency\n"
+                f"go get {package_name}@latest\n"
+                f"go mod tidy\n\n"
+                f"# Verify\n"
+                f"go list -m {package_name}"
+            )
         elif ecosystem == "rust":
             upgrade_cmd = f"cargo update -p {package_name}"
+            solution_code = (
+                f"# Update in Cargo.toml and lock\n"
+                f"cargo update -p {package_name}\n\n"
+                f"# Or specify minimum version in Cargo.toml:\n"
+                f'# {package_name} = ">={fix_version}"' if fix_version else f"cargo update -p {package_name}"
+            )
         else:
             upgrade_cmd = f"Update {package_name} to latest version"
+            solution_code = f"# Update {package_name} using your package manager"
 
-        solution = f"Upgrade {package_name} to fix {vuln_id}."
-        if fix_version:
-            solution = f"Upgrade {package_name} to version {fix_version} or later to fix {vuln_id}."
+        solution = (
+            f"Upgrade {package_name} to "
+            f"{'version ' + fix_version + ' or later' if fix_version else 'the latest version'} "
+            f"to resolve {vuln_id}{cve_display}. "
+            f"After upgrading, run your test suite to ensure compatibility."
+        )
 
         # Build reference URL
         reference_url = f"https://osv.dev/vulnerability/{vuln_id}"
 
-        # CVE alias for display
-        cve_ids = [a for a in aliases if a.startswith("CVE-")]
-        title_suffix = f" ({cve_ids[0]})" if cve_ids else ""
-
-        description = (
-            f"Vulnerability {vuln_id}{title_suffix} found in {package_name}"
-            f"{f' {version}' if version else ''}: {summary[:200]}"
-        )
-
         return AgentFinding(
             severity=severity,
-            description=description,
+            description=description.strip(),
             category="vulnerability",
-            file_path=None,
+            file_path=f"requirements.txt" if ecosystem == "python" else (
+                "package.json" if ecosystem == "nodejs" else (
+                    "go.mod" if ecosystem == "go" else "Cargo.toml"
+                )
+            ),
             solution=solution,
-            solution_code=upgrade_cmd,
+            solution_code=solution_code,
             solution_reference=reference_url,
             fix_difficulty="easy",
             estimated_fix_minutes=10,
