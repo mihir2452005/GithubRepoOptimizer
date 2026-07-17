@@ -1,4 +1,16 @@
-import { AnalyzeRequest, AnalyzeResponse } from './types';
+import { AnalyzeRequest, AnalyzeResponse, HistoryEntry, DiffResult } from './types';
+
+/**
+ * API base URL — uses VITE_API_URL env var in production (points to Render backend).
+ * Falls back to empty string (same-origin) for local development with Vite proxy.
+ */
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
+/**
+ * Request timeout in milliseconds.
+ * 3 minutes to account for Render cold starts + clone + analysis.
+ */
+const TIMEOUT_MS = 180_000;
 
 export class ApiError extends Error {
   constructor(
@@ -11,9 +23,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Parse error response body from the backend, extracting
+ * the most useful message for display.
+ */
+async function parseErrorResponse(response: Response): Promise<string> {
+  try {
+    const errorBody = await response.json();
+    return errorBody?.detail || errorBody?.error || `Server error: ${response.status}`;
+  } catch {
+    return `Server error: ${response.status}`;
+  }
+}
+
 export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
     const body: Record<string, string> = { repo_url: request.repo_url };
@@ -21,7 +46,7 @@ export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeRespo
       body.github_token = request.github_token;
     }
 
-    const response = await fetch('/api/v1/repos/analyze', {
+    const response = await fetch(`${API_BASE}/api/v1/repos/analyze`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,12 +56,8 @@ export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeRespo
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new ApiError(
-        errorData.detail || `Request failed with status ${response.status}`,
-        response.status,
-        errorData.detail
-      );
+      const message = await parseErrorResponse(response);
+      throw new ApiError(message, response.status, message);
     }
 
     const data: AnalyzeResponse = await response.json();
@@ -46,7 +67,10 @@ export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeRespo
       throw error;
     }
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError('Request timed out. The analysis is taking too long.', 408);
+      throw new ApiError(
+        'Request timed out. The analysis is taking longer than expected — the server may be starting up. Please try again in a moment.',
+        408
+      );
     }
     if (error instanceof TypeError) {
       throw new ApiError(
@@ -65,9 +89,71 @@ export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeRespo
 
 export async function checkHealth(): Promise<boolean> {
   try {
-    const response = await fetch('/health');
+    const response = await fetch(`${API_BASE}/health`);
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+// === History API ===
+
+export async function getHistory(): Promise<HistoryEntry[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/history`);
+    if (!response.ok) {
+      return [];
+    }
+    return await response.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function getHistoryByRepo(repoUrl: string): Promise<HistoryEntry[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/history/repo?url=${encodeURIComponent(repoUrl)}`);
+    if (!response.ok) {
+      return [];
+    }
+    return await response.json();
+  } catch {
+    return [];
+  }
+}
+
+// === Diff API ===
+
+export async function getDiff(jobA: string, jobB: string): Promise<DiffResult> {
+  const response = await fetch(`${API_BASE}/api/v1/diff?job_a=${encodeURIComponent(jobA)}&job_b=${encodeURIComponent(jobB)}`);
+  if (!response.ok) {
+    const message = await parseErrorResponse(response);
+    throw new ApiError(message, response.status);
+  }
+  return await response.json();
+}
+
+// === Reports API ===
+
+export async function getReportHtml(jobId: string): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/v1/reports/${encodeURIComponent(jobId)}/html`);
+  if (!response.ok) {
+    const message = await parseErrorResponse(response);
+    throw new ApiError(message, response.status);
+  }
+  return await response.text();
+}
+
+// === Job Status (polling fallback) ===
+
+export async function getJobStatus(jobId: string): Promise<AnalyzeResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/v1/repos/jobs/${encodeURIComponent(jobId)}/status`);
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
   }
 }

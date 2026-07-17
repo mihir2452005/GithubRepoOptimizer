@@ -11,6 +11,24 @@ from pydantic import Field
 class ConfigRegistry(BaseSettings):
     """Centralized configuration singleton loaded from environment variables."""
 
+    # Deployment environment
+    environment: str = Field(
+        default="development",
+        description="Deployment environment: development, staging, production",
+    )
+
+    # CORS allowed origins (comma-separated)
+    allowed_origins: str = Field(
+        default="http://localhost:3000,http://localhost:5173",
+        description="Comma-separated list of allowed CORS origins. Use * for all.",
+    )
+
+    # Request timeout
+    request_timeout_seconds: int = Field(
+        default=120,
+        description="Max seconds for clone + analysis requests",
+    )
+
     # Core infrastructure
     database_url: str = Field(
         default="sqlite+aiosqlite:///./repogenius.db",

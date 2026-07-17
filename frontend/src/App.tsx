@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { AnalyzeForm } from './components/AnalyzeForm';
 import { LoadingState } from './components/LoadingState';
 import { ResultsDashboard } from './components/ResultsDashboard';
-import { analyzeRepo } from './api';
+import { HistoryList } from './components/HistoryList';
+import { ProgressStream } from './components/ProgressStream';
+import { DiffView } from './components/DiffView';
+import { analyzeRepo, getReportHtml, getJobStatus } from './api';
 import type { AnalyzeResponse } from './types';
 
 type AppState = 'idle' | 'loading' | 'done';
@@ -11,29 +14,104 @@ function App() {
   const [state, setState] = useState<AppState>('idle');
   const [results, setResults] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState<{ jobA: string; jobB: string } | null>(null);
 
   const handleSubmit = async (repoUrl: string, githubToken?: string) => {
     setState('loading');
     setError(null);
+    setCurrentJobId(null);
 
     try {
       const response = await analyzeRepo({
         repo_url: repoUrl,
         github_token: githubToken || undefined,
       });
-      setResults(response);
-      setState('done');
+
+      if (response.status === 'running' && response.job_id) {
+        // Async mode — use WebSocket progress
+        setCurrentJobId(response.job_id);
+      } else {
+        setResults(response);
+        setState('done');
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else if (typeof err === 'object' && err !== null && 'detail' in err) {
+        message = String((err as { detail: unknown }).detail);
+      } else {
+        message = 'An unexpected error occurred. Please try again.';
+      }
       setError(message);
       setState('idle');
     }
   };
 
+  const handleProgressComplete = useCallback(async () => {
+    // Analysis complete via WebSocket — fetch the results
+    if (currentJobId) {
+      const result = await getJobStatus(currentJobId);
+      if (result && result.status === 'completed') {
+        setResults(result);
+        setState('done');
+      }
+    }
+  }, [currentJobId]);
+
+  const handleProgressError = useCallback((errorMsg: string) => {
+    setError(errorMsg);
+    setState('idle');
+    setCurrentJobId(null);
+  }, []);
+
   const handleReset = () => {
     setState('idle');
     setResults(null);
     setError(null);
+    setCurrentJobId(null);
+    setShowDiff(null);
+  };
+
+  const handleViewHistoryResult = async (jobId: string) => {
+    // Load a past result from history
+    const result = await getJobStatus(jobId);
+    if (result && result.results) {
+      setResults(result);
+      setState('done');
+    }
+  };
+
+  const handleCompare = (jobA: string, jobB: string) => {
+    setShowDiff({ jobA, jobB });
+  };
+
+  const handleDownloadReport = async () => {
+    if (!results?.job_id) return;
+    try {
+      const html = await getReportHtml(results.job_id);
+      // Open in a new window
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(html);
+        newWindow.document.close();
+      }
+    } catch {
+      // Fallback: download as file
+      try {
+        const html = await getReportHtml(results.job_id);
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `repogenius-report-${results.job_id.slice(0, 8)}.html`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        // Silently fail
+      }
+    }
   };
 
   return (
@@ -48,6 +126,14 @@ function App() {
             <h1 className="text-xl font-semibold text-white">
               RepoGenius <span className="text-blue-400">AI</span>
             </h1>
+            {state === 'done' && (
+              <button
+                onClick={handleReset}
+                className="ml-auto text-sm text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                ← New Analysis
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -55,11 +141,61 @@ function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {state === 'idle' && (
-          <AnalyzeForm onSubmit={handleSubmit} error={error} />
+          <>
+            <AnalyzeForm onSubmit={handleSubmit} error={error} />
+
+            {/* History Section */}
+            <div className="mt-8">
+              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">
+                Recent Analyses
+              </h2>
+              <HistoryList
+                onViewResult={handleViewHistoryResult}
+                onCompare={handleCompare}
+              />
+            </div>
+
+            {/* Diff View Modal */}
+            {showDiff && (
+              <div className="mt-6">
+                <DiffView
+                  jobA={showDiff.jobA}
+                  jobB={showDiff.jobB}
+                  onClose={() => setShowDiff(null)}
+                />
+              </div>
+            )}
+          </>
         )}
-        {state === 'loading' && <LoadingState />}
+
+        {state === 'loading' && (
+          <div>
+            {currentJobId ? (
+              <ProgressStream
+                jobId={currentJobId}
+                onComplete={handleProgressComplete}
+                onError={handleProgressError}
+              />
+            ) : (
+              <LoadingState />
+            )}
+          </div>
+        )}
+
         {state === 'done' && results && (
-          <ResultsDashboard data={results} onReset={handleReset} />
+          <>
+            {/* Action buttons above results */}
+            <div className="flex items-center gap-3 mb-6">
+              <button
+                onClick={handleDownloadReport}
+                className="text-sm px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg hover:bg-slate-700 hover:text-white transition-colors"
+              >
+                📄 Download HTML Report
+              </button>
+            </div>
+
+            <ResultsDashboard data={results} onReset={handleReset} />
+          </>
         )}
       </main>
     </div>

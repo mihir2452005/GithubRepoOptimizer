@@ -76,3 +76,47 @@ export interface ApiError {
   detail: string;
   status_code?: number;
 }
+
+// === History ===
+export interface HistoryEntry {
+  id: string;
+  repo_url: string;
+  timestamp: string;
+  optimization_score: number | null;
+  health_grade: string | null;
+  findings_count: number;
+  results_summary?: Record<string, { status: string; findings_count: number; summary: string }>;
+}
+
+// === Diff ===
+export interface DiffResult {
+  job_id_a: string;
+  job_id_b: string;
+  repo_url_a: string;
+  repo_url_b: string;
+  score_delta: number | null;
+  new_findings: AgentFinding[];
+  resolved_findings: AgentFinding[];
+  unchanged_findings: AgentFinding[];
+  metrics_delta: {
+    findings_count_before: number;
+    findings_count_after: number;
+    findings_delta: number;
+    new_findings_count: number;
+    resolved_findings_count: number;
+    health_grade_before: string | null;
+    health_grade_after: string | null;
+  };
+}
+
+// === WebSocket Progress ===
+export interface ProgressEvent {
+  type: 'agent_complete' | 'complete' | 'error' | 'heartbeat';
+  agent?: string;
+  status?: string;
+  progress?: number;
+  total_agents?: number;
+  completed?: number;
+  job_id?: string;
+  error?: string;
+}
