@@ -1,0 +1,72 @@
+# Environment and secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Workspace (cloned repos during analysis)
+workspace/
+backend/workspace/
+
+# Node.js
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker volumes
+redis_data/
+ollama_data/
+
+# Database (dev)
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Kiro specs (optional — remove this line if you want specs in repo)
+# .kiro/
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
