@@ -15,8 +15,30 @@ const severityConfig = {
 
 export function FindingCard({ finding }: FindingCardProps) {
   const [showSolution, setShowSolution] = useState(false);
+  const [copied, setCopied] = useState(false);
   const config = severityConfig[finding.severity] || severityConfig.info;
   const hasSolution = finding.solution || finding.solution_code;
+
+  const handleCopyCode = async () => {
+    if (!finding.solution_code) return;
+    try {
+      await navigator.clipboard.writeText(finding.solution_code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = finding.solution_code;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div className={`border rounded-lg p-4 ${config.color}`}>
@@ -81,9 +103,23 @@ export function FindingCard({ finding }: FindingCardProps) {
               {/* Code fix */}
               {finding.solution_code && (
                 <div className="mb-3">
-                  <h5 className="text-xs font-semibold text-blue-400 uppercase mb-1">
-                    Code Example
-                  </h5>
+                  <div className="flex items-center justify-between mb-1">
+                    <h5 className="text-xs font-semibold text-blue-400 uppercase">
+                      Code Example
+                    </h5>
+                    <button
+                      onClick={handleCopyCode}
+                      className="text-xs px-2 py-1 rounded bg-slate-700 text-slate-300 
+                                 hover:bg-slate-600 transition-colors flex items-center gap-1"
+                      aria-label="Copy code to clipboard"
+                    >
+                      {copied ? (
+                        <span className="text-green-400">✓ Copied!</span>
+                      ) : (
+                        <>📋 Copy Code</>
+                      )}
+                    </button>
+                  </div>
                   <pre className="text-xs font-mono text-slate-400 bg-slate-900/60 
                                   rounded p-2 overflow-x-auto whitespace-pre-wrap">
                     {finding.solution_code}

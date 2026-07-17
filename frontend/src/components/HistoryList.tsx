@@ -2,9 +2,39 @@ import { useEffect, useState } from 'react';
 import { getHistory } from '../api';
 import type { HistoryEntry } from '../types';
 
+const STORAGE_KEY = 'repogenius_history';
+
 interface HistoryListProps {
   onViewResult: (jobId: string) => void;
   onCompare?: (jobA: string, jobB: string) => void;
+}
+
+function loadFromLocalStorage(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as HistoryEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function saveToLocalStorage(entries: HistoryEntry[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 50)));
+  } catch {
+    // localStorage full or unavailable — ignore
+  }
+}
+
+function mergeEntries(apiEntries: HistoryEntry[], localEntries: HistoryEntry[]): HistoryEntry[] {
+  // API results take priority, but keep localStorage entries not in API response
+  const apiIds = new Set(apiEntries.map((e) => e.id));
+  const localOnly = localEntries.filter((e) => !apiIds.has(e.id));
+  const merged = [...apiEntries, ...localOnly];
+  // Sort by timestamp descending
+  merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  return merged.slice(0, 50);
 }
 
 export function HistoryList({ onViewResult, onCompare }: HistoryListProps) {
@@ -13,13 +43,29 @@ export function HistoryList({ onViewResult, onCompare }: HistoryListProps) {
   const [selectedForCompare, setSelectedForCompare] = useState<string | null>(null);
 
   useEffect(() => {
-    loadHistory();
+    // Load from localStorage FIRST (instant display)
+    const cached = loadFromLocalStorage();
+    if (cached.length > 0) {
+      setEntries(cached);
+      setLoading(false);
+    }
+
+    // Then fetch from API to update
+    loadHistory(cached);
   }, []);
 
-  const loadHistory = async () => {
-    setLoading(true);
-    const data = await getHistory();
-    setEntries(data);
+  const loadHistory = async (localEntries?: HistoryEntry[]) => {
+    if (!localEntries) {
+      localEntries = loadFromLocalStorage();
+    }
+
+    setLoading(localEntries.length === 0);
+    const apiData = await getHistory();
+
+    // Merge: API results take priority, localStorage entries not in API are kept
+    const merged = mergeEntries(apiData, localEntries);
+    setEntries(merged);
+    saveToLocalStorage(merged);
     setLoading(false);
   };
 

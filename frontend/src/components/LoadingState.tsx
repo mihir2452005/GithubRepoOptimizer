@@ -49,9 +49,24 @@ export function LoadingState() {
       <h2 className="text-2xl font-semibold text-white mb-2">
         Analyzing Repository...
       </h2>
-      <p className="text-slate-400 mb-8">
-        Running 8 AI agents in parallel
+      <p className="text-slate-400 mb-2">
+        Analyzing 8 agents in parallel...
       </p>
+
+      {/* Progress indicator */}
+      <div className="w-full bg-slate-700 rounded-full h-2 mb-4 max-w-xs mx-auto">
+        <div
+          className="bg-blue-500 h-2 rounded-full transition-all duration-1000"
+          style={{ width: `${Math.min((elapsed / 60) * 100, 95)}%` }}
+        />
+      </div>
+
+      {/* Slow connection message */}
+      {elapsed >= 10 && (
+        <p className="text-sm text-amber-400/80 mb-6 animate-fade-in">
+          Server is analyzing your repository... This typically takes 30-60 seconds
+        </p>
+      )}
 
       {/* Agent list */}
       <div className="card text-left space-y-2">

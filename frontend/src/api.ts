@@ -12,6 +12,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
  */
 const TIMEOUT_MS = 180_000;
 
+const HISTORY_STORAGE_KEY = 'repogenius_history';
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -61,6 +63,36 @@ export async function analyzeRepo(request: AnalyzeRequest): Promise<AnalyzeRespo
     }
 
     const data: AnalyzeResponse = await response.json();
+
+    // Save to localStorage cache for instant history on return
+    try {
+      const historyCache: HistoryEntry[] = JSON.parse(
+        localStorage.getItem(HISTORY_STORAGE_KEY) || '[]'
+      );
+
+      // Calculate findings count from results
+      let findingsCount = 0;
+      if (data.results) {
+        for (const agentResult of Object.values(data.results)) {
+          findingsCount += agentResult.findings?.length ?? 0;
+        }
+      }
+
+      historyCache.unshift({
+        id: data.job_id,
+        repo_url: request.repo_url,
+        timestamp: new Date().toISOString(),
+        optimization_score: data.optimization_score ?? null,
+        health_grade: data.health_grade ?? null,
+        findings_count: findingsCount,
+      });
+
+      // Keep only the 50 most recent entries
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyCache.slice(0, 50)));
+    } catch {
+      // localStorage unavailable — continue without caching
+    }
+
     return data;
   } catch (error) {
     if (error instanceof ApiError) {
