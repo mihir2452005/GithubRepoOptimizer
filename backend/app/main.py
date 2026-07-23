@@ -94,6 +94,19 @@ def create_app() -> FastAPI:
     app.include_router(health_router)  # Also at root /health for convenience
     app.include_router(ws_router)      # WebSocket progress streaming
 
+    # Root endpoint — confirms API is live
+    @app.get("/", tags=["root"])
+    async def root():
+        return {
+            "service": "RepoGenius AI",
+            "version": "1.0.0",
+            "description": "AI-Powered GitHub Repository Optimization Platform",
+            "status": "running",
+            "docs": "/api/v1/docs",
+            "health": "/health",
+            "analyze": "POST /api/v1/repos/analyze",
+        }
+
     return app
 
 
